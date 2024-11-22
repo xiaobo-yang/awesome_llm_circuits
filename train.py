@@ -81,6 +81,7 @@ def get_lambda(step):
 
 # ------------------- load -------------------
 # load llm model
+tokenizer = AutoTokenizer.from_pretrained(model_path)
 model = AutoModelForCausalLM.from_pretrained(
     model_path,
     torch_dtype=torch.bfloat16, 
@@ -265,7 +266,7 @@ for step in range(start_step, num_steps):
             print(f"  Eval L0 Loss: {avg_eval_l0_loss:.4f}")
         
             # 比较生成样本并保存
-            samples = compare_gen(model, raw_autoencoder, hook_layers)
+            samples = compare_gen(model, tokenizer, raw_autoencoder, hook_layers)
             with open(json_filename, 'a') as f:
                 json.dump(samples, f, indent=2)
         
