@@ -11,6 +11,17 @@ import sys
 sys.path.append("/data/my_tools/build-nanogpt")
 from modelling_gpt2 import GPT, GPTConfig
 
+"""
+    测试对gpt2权重中和embedding维数相同的向量都做同一个角度的旋转，模型是否等价
+    layer norm的结构无法等价，因为需要用到每个embedding向量x自己的标准差来标准化，标准差相当于 x投影到1向量的补空间的模长 / 维度 = x(I - 11^T/n) / n，
+    旋转之后会发生改变, 只能通过layer norm的weight参数乘以一个系数来维持等价性，然而这个系数和传入的x有关！
+
+    改为使用rms norm，则可以等价
+
+    不过，这种旋转等价性可能拿来缩减模型训练所需的参数量，因为只需固定其中一个向量，就可以消除这种旋转等价性，因为所有参与旋转的向量关于这个向量的相对距离（如夹角）的改变，都可能导致模型发生改变。
+    这只能节约n_embd个参数，微乎其微。。
+"""
+
 
 device = 'cuda' if torch.cuda.is_available() else 'cpu'
 model_path = '/home/yangxiaobo/my_tools/build-nanogpt/log/gpt2_model_19072.pt'
@@ -40,6 +51,10 @@ new_model = GPT(model_config).to(device)
 new_model.load_state_dict(model.state_dict())
 new_model.eval()
 
+
+
+
+# layer norm无法通过旋转参数让模型等价，只能暂时移除
 # 定义LayerNorm的pre和post hook
 def ln_pre_hook(module, input):
     x = input[0]
@@ -61,6 +76,8 @@ with torch.no_grad():
     # 最后的ln_f层也需要注册hook
     new_model.transformer.ln_f.register_forward_pre_hook(ln_pre_hook)
     new_model.transformer.ln_f.register_forward_hook(ln_post_hook)
+
+
 
 # 对需要旋转的权重进行变换
 with torch.no_grad():
@@ -84,7 +101,7 @@ with torch.no_grad():
     # # 4. 最后的输出层 (50304, 768) # weight tying 故不必操作
     # new_model.lm_head.weight.data = model.lm_head.weight.mm(ortho_matrix)
 
-
+# 以下得到相同输出
 x = torch.tensor([enc.encode('Hello, this is a test.')]).to(device)
 out = model.generate(x, max_new_tokens=32, do_sample=False)[0].tolist()
 print(f"original: \n{enc.decode(out)}\n")
