@@ -16,7 +16,7 @@ from modelling_gpt2 import GPT, GPTConfig
     layer norm的结构无法等价，因为需要用到每个embedding向量x自己的标准差来标准化，标准差相当于 x投影到1向量的补空间的模长 / 维度 = x(I - 11^T/n) / n，
     旋转之后会发生改变, 只能通过layer norm的weight参数乘以一个系数来维持等价性，然而这个系数和传入的x有关！
 
-    改为使用rms norm，则可以等价
+    改为使用rms norm，则也不可以等价，因为rmsnorm的参数和x/sqrt(\|x\|^2/d) 是逐分量相乘，除非weight向量各分量全部相等，不然RMSNorm(U^T x) != U^T RMSNorm(x)
 
     不过，这种旋转等价性可能拿来缩减模型训练所需的参数量，因为只需固定其中一个向量，就可以消除这种旋转等价性，因为所有参与旋转的向量关于这个向量的相对距离（如夹角）的改变，都可能导致模型发生改变。
     这只能节约n_embd个参数，微乎其微。。
@@ -29,9 +29,13 @@ model_name = model_path.split('/')[-1]
 checkpoint = torch.load(model_path, map_location=device, weights_only=True)
 model_config = GPTConfig(**checkpoint['config'])
 model = GPT(model_config).to(device)
+new_model = GPT(model_config).to(device)
+enc = tiktoken.get_encoding("gpt2")
+
 model.load_state_dict(checkpoint['model'])
 model.eval()
-enc = tiktoken.get_encoding("gpt2")
+new_model.load_state_dict(checkpoint['model'])
+new_model.eval()
 
 # 生成正交矩阵
 def generate_orthogonal_matrix(dim):
@@ -45,12 +49,6 @@ ortho_matrix = generate_orthogonal_matrix(768).to(device)
 # 验证正交性（可选）
 identity_check = torch.mm(ortho_matrix, ortho_matrix.T)
 print(f"正交性检查 - 与单位矩阵的最大误差: {(identity_check - torch.eye(768, device=device)).abs().max().item()}")
-
-# 创建新模型并转换为双精度
-new_model = GPT(model_config).to(device)
-new_model.load_state_dict(model.state_dict())
-new_model.eval()
-
 
 
 
@@ -98,8 +96,8 @@ with torch.no_grad():
         # fc2 (3072 to 768)
         new_model.transformer.h[layer].mlp.c_proj.weight.data = ortho_matrix.T.mm(model.transformer.h[layer].mlp.c_proj.weight.data)
         new_model.transformer.h[layer].mlp.c_proj.bias.data = ortho_matrix.T @ model.transformer.h[layer].mlp.c_proj.bias.data
-    # # 4. 最后的输出层 (50304, 768) # weight tying 故不必操作
-    # new_model.lm_head.weight.data = model.lm_head.weight.mm(ortho_matrix)
+        # # 4. 最后的输出层 (50304, 768) # weight tying 故不必操作
+        # new_model.lm_head.weight.data = model.lm_head.weight.mm(ortho_matrix)
 
 # 以下得到相同输出
 x = torch.tensor([enc.encode('Hello, this is a test.')]).to(device)
