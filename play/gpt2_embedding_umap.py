@@ -14,37 +14,7 @@ from modelling_gpt2 import GPT, GPTConfig
 
 
 
-
 def wte_umap_with_longest_tokens(model, model_name):
-    # 获取GPT2 tokenizer
-    enc = tiktoken.get_encoding("gpt2")
-
-    # 获取所有tokens的解码结果和长度
-    token_info = []
-    for i in range(enc.n_vocab):
-        decoded = enc.decode([i])
-        token_info.append({
-            'token_id': i,
-            'decoded': decoded,
-            'length': len(decoded),
-            'is_special': i in enc.special_tokens_set
-        })
-
-    # 转换为DataFrame并排序
-    df = pd.DataFrame(token_info)
-    df_sorted = df.sort_values('length', ascending=False)
-
-    # 打印特殊token
-    print("\nGPT2特殊token:")
-    special_tokens = df[df['is_special']]
-    print(special_tokens[['token_id', 'decoded']])
-
-    # 打印最长的20个token
-    print("\n最长的20个token:")
-    print(df_sorted[['token_id', 'decoded', 'length']].head(20))
-
-
-
     # 将词嵌入权重转换为numpy数组
     embeddings = model.transformer.wte.weight.detach().cpu().numpy()
 
@@ -121,12 +91,48 @@ def wte_wpe_umap(model, model_name):
 
 if __name__ == '__main__':
     device = 'cuda' if torch.cuda.is_available() else 'cpu'
-    model_path = '/home/yangxiaobo/my_tools/build-nanogpt/log/gpt2-medium_model_19072.pt'
-    model_name = model_path.split('/')[-1]
-    checkpoint = torch.load(model_path, map_location=device, weights_only=True)
-    model_config = GPTConfig(**checkpoint['config'])
-    model = GPT(model_config).to(device)
-    model.load_state_dict(checkpoint['model'])
-    wte_wpe_umap(model, model_name)
+    # model_path = '/home/yangxiaobo/my_tools/build-nanogpt/log/gpt2-medium_model_19072.pt'
+    # model_name = model_path.split('/')[-1]
+    # checkpoint = torch.load(model_path, map_location=device, weights_only=True)
+    # model_config = GPTConfig(**checkpoint['config'])
+    # model = GPT(model_config).to(device)
+    # model.load_state_dict(checkpoint['model'])
+    # wte_wpe_umap(model, model_name)
+
+    # 获取GPT2 tokenizer
+    enc = tiktoken.get_encoding("gpt2")
+
+    # 获取所有tokens的解码结果和长度
+    token_info = []
+    for i in range(enc.n_vocab):
+        decoded = enc.decode([i])
+        token_info.append({
+            'token_id': i,
+            'decoded': decoded,
+            'length': len(decoded),
+            'is_special': i in enc.special_tokens_set
+        })
+
+    # 转换为DataFrame并排序
+    df = pd.DataFrame(token_info)
+    df_sorted = df.sort_values('length', ascending=False)
+
+    # 打印特殊token
+    print("\nGPT2特殊token:")
+    special_tokens = df[df['is_special']]
+    print(special_tokens[['token_id', 'decoded']])
+
+    # 打印最长的20个token
+    print("\n最长的20个token:")
+    print(df_sorted[['token_id', 'decoded', 'length']].head(20))
+
+    for model_type in ['gpt2', 'gpt2-medium', 'gpt2-large', 'gpt2-xl']:
+        model_path = f'/home/yangxiaobo/my_tools/build-nanogpt/log/{model_type}_model_19072.pt'
+        checkpoint = torch.load(model_path, map_location=device, weights_only=True)
+        model_config = GPTConfig(**checkpoint['config'])
+        model = GPT(model_config).to(device)
+        model.load_state_dict(checkpoint['model'])
+        model_name = model_path.split('/')[-1]
+        wte_umap_with_longest_tokens(model, model_name)
 
 
