@@ -1,11 +1,7 @@
 import torch
 import torch.nn as nn
-import torch.optim as optim
-import matplotlib.pyplot as plt
-import umap
-import numpy as np
+import torch.nn.functional as F
 import tiktoken
-import pandas as pd
 
 import sys
 sys.path.append("/data/my_tools/build-nanogpt")
@@ -112,7 +108,8 @@ print(f"original: \n{enc.decode(out)}\n")
 rotated_out = new_model.generate(x, max_new_tokens=32, do_sample=False)[0].tolist()
 print(f"rotated: \n{enc.decode(rotated_out)}\n")
 print(f"Is generation equal: {enc.decode(out) == enc.decode(rotated_out)}")
-print(f"Logits difference: {(model(x)[0] - new_model(x)[0]).abs().max().item()}")
+print(f"Max Probs difference: {(F.softmax(model(x)[0], dim=-1) - F.softmax(new_model(x)[0], dim=-1)).abs().max().item()}")
+print(f"Max Parmas difference in wte: {(model.transformer.wte.weight - new_model.transformer.wte.weight).abs().max().item()}")
 
 # 输出：
 # original: 
