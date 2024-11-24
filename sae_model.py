@@ -2,6 +2,7 @@ import copy
 from dataclasses import dataclass
 import torch
 import torch.nn as nn
+import os
 
 
 
@@ -41,9 +42,8 @@ class SparseAutoencoder(nn.Module):
                 col_vector *= l2_norm / torch.norm(col_vector)
                 self.decoder.weight[:, col] = col_vector
         
-        self.encoder.weight = nn.Parameter(self.decoder.weight.T) # weight tying, 更新时两者weight相同，但grad由于处在不同位置而不同，更新时为两个部分grad之和（这也符合chain rule）
-        # TODO: 从训练的权重结果上看weight tying似乎失败了！两者并不相等。检查一下
-        
+        self.encoder.weight = nn.Parameter(self.decoder.weight.T) 
+        # https://transformer-circuits.pub/2024/april-update/index.html#training-saes 这里只提到初始化满足tying，训练时不tied。不过后续可以自己实验看看。
         nn.init.zeros_(self.encoder.bias)
         nn.init.zeros_(self.decoder.bias)
 
@@ -79,8 +79,65 @@ def preprocess_dataset(X):
     return X_scaled
 
 if __name__ == '__main__':
-    config = SAEConfig(
-        sae_input_dim=768 * 4,
-        sae_hidden_dim=768 * 32,
+    import torch.distributed as dist
+    from torch.distributed.fsdp import (
+        FullyShardedDataParallel as FSDP,
+        CPUOffload,
+        MixedPrecision,
+        ShardingStrategy,
+        BackwardPrefetch,
+        StateDictType,
     )
+    from torch.distributed.fsdp.wrap import (
+        transformer_auto_wrap_policy,
+        size_based_auto_wrap_policy,
+        enable_wrap,
+        wrap,
+    )
+    
+    # 1. 初始化分布式环境
+    local_rank = int(os.environ.get("LOCAL_RANK", -1))
+    dist.init_process_group("nccl")
+    torch.cuda.set_device(local_rank)
+    
+    # 2. 在CPU上创建模型
+    if local_rank == 0:
+        config = SAEConfig(
+            sae_input_dim=32,
+        sae_hidden_dim=64,
+        )
+        model = SparseAutoencoder(config)  # 不要调用.to(device)
+    else:
+        model = None
+    dist.barrier()
+    
+    # 3. 配置FSDP
+    mp_policy = MixedPrecision(
+        param_dtype=torch.bfloat16,
+        reduce_dtype=torch.bfloat16,
+        buffer_dtype=torch.bfloat16,
+    )
+    
+    fsdp_config = dict(
+        device_id=local_rank,
+        sharding_strategy=ShardingStrategy.FULL_SHARD,  # 完全切分
+        mixed_precision=mp_policy,
+        cpu_offload=CPUOffload(offload_params=True),  # CPU卸载
+        backward_prefetch=BackwardPrefetch.BACKWARD_PRE,  # 预取优化
+        limit_all_gathers=True,  # 限制all-gather操作
+    )
+    
+    # 4. 使用FSDP包装模型并广播
+    with FSDP.state_dict_type(model, StateDictType.SHARDED_STATE_DICT):
+        model = FSDP(model, **fsdp_config)
+    model = model.cuda(local_rank)
+    
+    # 5. 打印模型信息（仅在rank 0上）
+    if local_rank == 0:
+        print(f"Model initialized with FSDP:")
+        print(f"- Total parameters: {sum(p.numel() for p in model.parameters())}")
+        print(f"- FSDP config: {fsdp_config}")
+    
+    # 6. 清理
+    dist.destroy_process_group()
 

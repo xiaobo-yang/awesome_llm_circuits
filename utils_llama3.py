@@ -27,7 +27,6 @@ def compare_gen(model, tokenizer, autoencoder, layers):
         Input:
             layer: layer with sae
     """
-    # 用来比较sae替换掉的gpt和原始的gpt的生成
     prompts = [
         "The quick brown fox",
         "In a world where",

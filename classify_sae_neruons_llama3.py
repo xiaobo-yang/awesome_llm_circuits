@@ -54,14 +54,10 @@ model_path = '/data/my_data/models/Llama-3.2-1B-Instruct'
 sae_checkpoint_path = 'run_20241123_004726_checkpoint_step_49999.pth'
 hook_layers = [11,] # layer of mlp to hook
 batch_size = 8 # bs太大可能会报RuntimeError: nonzero is not supported for tensors with more than INT_MAX elements, 因为张量中非零元素的数量超过了 INT_MAX（通常是 2^31 - 1）
-block_size = 1024 # llama3 还可以很大
+block_size = 1024 # llama3 context windows可以很大
 random_batch = True
 log_dir = 'log'
 num_batches = 1  # 载入的batch个数
-sae_config = SAEConfig(
-    sae_input_dim=8192,
-    sae_hidden_dim=131072,
-)
 
 class NeuronActivationRecorder:
     def __init__(self, hidden_dim):
@@ -103,8 +99,8 @@ model = AutoModelForCausalLM.from_pretrained(
 )
 model.eval()
 # load sae model
-autoencoder = SparseAutoencoder(sae_config).to(torch.bfloat16).to(device)
 sae_ckpt = torch.load(os.path.join(log_dir, sae_checkpoint_path), map_location=device)
+autoencoder = SparseAutoencoder(sae_ckpt['config']).to(torch.bfloat16).to(device)
 autoencoder.load_state_dict(sae_ckpt['model_state_dict'])
 autoencoder.eval()
 # hook sae to llm

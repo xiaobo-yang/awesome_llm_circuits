@@ -1,7 +1,11 @@
 import torch
-import torch.nn as nn
 import torch.optim as optim
-from torch.nn.parallel import DistributedDataParallel as DDP
+from torch.distributed.fsdp import (
+    FullyShardedDataParallel as FSDP, 
+    StateDictType, 
+    FullStateDictConfig,
+    FullOptimStateDictConfig,
+)
 from torch.distributed import init_process_group, destroy_process_group
 import torch.distributed as dist
 import random
@@ -30,24 +34,24 @@ parser.add_argument('--not_wandb', action='store_true', help='不使用Wandb进�
 args = parser.parse_args()
 
 
-# 设置DDP
+# 设置分布式训练
 random_seed = 42
-ddp = int(os.environ.get('RANK', -1)) != -1
-if ddp:
+is_distri = int(os.environ.get('RANK', -1)) != -1
+if is_distri:
     init_process_group(backend='nccl')
-    ddp_rank = int(os.environ['RANK'])
-    ddp_local_rank = int(os.environ['LOCAL_RANK'])
-    ddp_world_size = int(os.environ['WORLD_SIZE'])
-    device = f'cuda:{ddp_local_rank}'
+    rank = int(os.environ['RANK'])
+    local_rank = int(os.environ['LOCAL_RANK'])
+    world_size = int(os.environ['WORLD_SIZE'])
+    device = f'cuda:{local_rank}'
     torch.cuda.set_device(device)
-    master_process = ddp_rank == 0
+    master_process = rank == 0
 else:
-    ddp_rank = 0
-    ddp_local_rank = 0
-    ddp_world_size = 1
+    rank = 0
+    local_rank = 0
+    world_size = 1
     master_process = True
     device = 'cuda' if torch.cuda.is_available() else 'cpu'
-seed = random_seed + ddp_rank
+seed = random_seed + rank
 torch.manual_seed(seed)
 
 
@@ -55,20 +59,20 @@ torch.manual_seed(seed)
 # sae data args
 model_path = '/data/my_data/models/Llama-3.2-1B-Instruct'
 hook_layers = args.hook_layers # layer of mlp to hook
-batch_size = 16
-total_batch_size = 16 * 8  # this is bs of token, bs of mlp activations is total_batch_size * 1024
-grad_accum_steps = max(1, total_batch_size // (batch_size * ddp_world_size))
-block_size = 1024
+batch_size = 1
+total_batch_size = batch_size * 8  # this is bs of token, bs of mlp activations is total_batch_size * block_size
+grad_accum_steps = max(1, total_batch_size // (batch_size * world_size))
+block_size = 128
 random_batch = False
 # sae training args
 num_steps = 200000
-ini_lr = 5e-5
+ini_lr = 1e-5
 clip_norm = 1.0
 ini_lambda = 5.0 # lambda for sparsity loss
 sae_l2_norm = 0.1  # initialized norm of encoder
-save_steps = 50000
+save_steps = 10000
 eval_interval = 100
-num_eval_steps = 40 // ddp_world_size # eval sample num = num_eval_steps * batch_size
+num_eval_steps = 40 // world_size # eval sample num = num_eval_steps * batch_size
 
 def get_lr(step):
     threshold = int(0.8*num_steps)
@@ -89,11 +93,11 @@ model = AutoModelForCausalLM.from_pretrained(
 )
 model.eval()
 # load data
-data_loader = DataLoaderActivations(model, hook_layers=hook_layers, B=batch_size, T=block_size, process_rank=ddp_rank, num_processes=ddp_world_size, split="train", random_batch=random_batch)
+data_loader = DataLoaderActivations(model, hook_layers=hook_layers, B=batch_size, T=block_size, process_rank=rank, num_processes=world_size, split="train", random_batch=random_batch)
 # load sae model
 config = SAEConfig(
     sae_input_dim=8192,
-    sae_hidden_dim=131072,
+    sae_hidden_dim=524288,
     sae_l1_coefficient=ini_lambda,
     sae_l2_norm=sae_l2_norm,
 )
@@ -153,9 +157,9 @@ if master_process:
 
 
 # ------------------- train -------------------
-if ddp:
-    autoencoder = DDP(autoencoder, device_ids=[ddp_local_rank])
-raw_autoencoder = autoencoder.module if ddp else autoencoder
+if is_distri:
+    autoencoder = FSDP(autoencoder)
+raw_autoencoder = autoencoder.module if is_distri else autoencoder
 
 random.seed(seed)
 np.random.seed(seed)
@@ -175,7 +179,7 @@ for step in range(start_step, num_steps):
     for micro_step in range(grad_accum_steps):
         batch = data_loader.next_batch()
         batch = torch.from_numpy(batch).to(torch.bfloat16).to(device)
-        if ddp:
+        if is_distri:
             autoencoder.require_backward_grad_sync = (micro_step == grad_accum_steps - 1)
         reconstructed, encoded = autoencoder(batch)
         loss, recon_loss, sparsity_loss = raw_autoencoder.loss_fn(batch, reconstructed, encoded)
@@ -190,7 +194,7 @@ for step in range(start_step, num_steps):
             l0_loss = (encoded != 0).float().sum(dim=1).mean()
             l1_loss_accum += l1_loss.detach() / grad_accum_steps
             l0_loss_accum += l0_loss.detach() / grad_accum_steps
-    if ddp:
+    if is_distri:
         dist.all_reduce(loss_accum, op=dist.ReduceOp.AVG)
         dist.all_reduce(recon_loss_accum, op=dist.ReduceOp.AVG)
         dist.all_reduce(sparsity_loss_accum, op=dist.ReduceOp.AVG)
@@ -245,7 +249,7 @@ for step in range(start_step, num_steps):
         eval_sparsity_losses = torch.tensor(eval_sparsity_losses, device=device)
         eval_l1_losses = torch.tensor(eval_l1_losses, device=device)
         eval_l0_losses = torch.tensor(eval_l0_losses, device=device)
-        if ddp:
+        if is_distri:
             dist.all_reduce(eval_losses, op=dist.ReduceOp.AVG)
             dist.all_reduce(eval_recon_losses, op=dist.ReduceOp.AVG)
             dist.all_reduce(eval_sparsity_losses, op=dist.ReduceOp.AVG)
@@ -280,23 +284,36 @@ for step in range(start_step, num_steps):
                     "eval_l0_loss": avg_eval_l0_loss,
                     "generation_samples": wandb.Table(
                             columns=["Prompt", "model with SAE", "model"],
-                            data=[[s["prompt"], s["sae_gpt2"], s["gpt2"]] for s in samples]
+                            data=[[s["prompt"], s["sae_model"], s["model"]] for s in samples]
                         )
                 })
             
 
     # ------------------- save model -------------------
-    if master_process and ((step + 1) % save_steps == 0 or step == num_steps - 1):
+    if (step + 1) % save_steps == 0 or step == num_steps - 1:
+        cfg = FullStateDictConfig(offload_to_cpu=True, rank0_only=True)
+        optim_cfg = FullOptimStateDictConfig(offload_to_cpu=True, rank0_only=True)
+        
+        # 使用上下文管理器获取模型状态
+        with FSDP.state_dict_type(autoencoder, StateDictType.FULL_STATE_DICT, cfg):
+            model_states = autoencoder.state_dict()
+        
+        # 使用专门的API获取优化器状态
+        with FSDP.state_dict_type(autoencoder, StateDictType.FULL_STATE_DICT, optim_cfg):
+            optim_states = FSDP.optim_state_dict(autoencoder, optimizer)
+            
         checkpoint_path = f"log/{run_name}_checkpoint_step_{step}.pth"
         checkpoint_data = {
             'step': step + 1,
-            'model_state_dict': raw_autoencoder.state_dict(),
-            'optimizer_state_dict': optimizer.state_dict(),
+            'config': config,
+            'model_state_dict': model_states,
+            'optimizer_state_dict': optim_states,
         }
         if not args.not_wandb:
             checkpoint_data['wandb_id'] = wandb.run.id
-        torch.save(checkpoint_data, checkpoint_path)
-        print(f"save to {checkpoint_path}")
+        if master_process: 
+            torch.save(checkpoint_data, checkpoint_path)
+            print(f"save to {checkpoint_path}")
     
     if master_process:
         end_time = time()
@@ -308,5 +325,5 @@ for step in range(start_step, num_steps):
 # ------------------- clean -------------------
 data_loader.remove_hook_mlp()
 
-if ddp:
+if is_distri:
     destroy_process_group()

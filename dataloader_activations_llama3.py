@@ -77,13 +77,13 @@ class DataLoaderLite:
 
 
 class DataLoaderActivations(DataLoaderLite):
-    def __init__(self, model, hook_layers, B, T, process_rank, num_processes, split, random_batch=False):
+    def __init__(self, model, hook_layers, B, T, process_rank, num_processes, split, random_batch=False, hook_residual=False):
         super().__init__(B, T, process_rank, num_processes, split, random_batch)
         self.model = model
         self.mlp_activations = []
         self.model.eval()
 
-        self.hook_handles = self.hook_mlp(hook_layers)
+        self.hook_handles = self.hook_mlp(hook_layers, hook_residual)
     
     def next_batch(self):
         x, _ = super().next_batch()
@@ -93,13 +93,16 @@ class DataLoaderActivations(DataLoaderLite):
             self.model(**inputs)
         return self.mlp_activations.pop()
 
-    def hook_mlp(self, layers: List[int] = []):
+    def hook_mlp(self, layers: List[int] = [], hook_residual: bool = True):
         def hook_fn(module, input, output):
             output = output.detach().cpu().float().numpy()
             self.mlp_activations.append(output.reshape(-1, output.shape[-1]))
         hook_handles = []
         for layer in layers:
-            hook_handle = self.model.model.layers[layer].mlp.act_fn.register_forward_hook(hook_fn) # 注意这里是llama3架构的命名
+            if hook_residual:
+                raise NotImplementedError("residual hook not implemented")
+            else:
+                hook_handle = self.model.model.layers[layer].mlp.act_fn.register_forward_hook(hook_fn) # 注意这里是llama3架构的命名
             hook_handles.append(hook_handle)
         return hook_handles
 
