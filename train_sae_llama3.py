@@ -16,14 +16,14 @@ from transformers import AutoTokenizer, AutoModelForCausalLM
 
 from dataloader_activations_llama3 import DataLoaderActivations
 from sae_model import SAEConfig, SparseAutoencoder
-from utils import compare_gen
+from utils_llama3 import compare_gen
 
 
 
 
 # 添加命令行参数解析
 parser = argparse.ArgumentParser(description="训练或恢复稀疏自编码器训练")
-parser.add_argument('--hook_layers', '-l', type=int, default=[11,], help='要hook的GPT-2模型的层')
+parser.add_argument('--hook_layers', '-l', type=int, default=[11,], help='模型挂载sae的层')
 parser.add_argument('--resume', '-r', action='store_true', help='从sae检查点恢复训练')
 parser.add_argument('--checkpoint', '-c', type=str, default='', help='sae检查点文件路径')
 parser.add_argument('--not_wandb', action='store_true', help='不使用Wandb进行日志记录')
@@ -279,7 +279,7 @@ for step in range(start_step, num_steps):
                     "eval_l1_loss": avg_eval_l1_loss,
                     "eval_l0_loss": avg_eval_l0_loss,
                     "generation_samples": wandb.Table(
-                            columns=["Prompt", "SAE-GPT2", "GPT-2"],
+                            columns=["Prompt", "model with SAE", "model"],
                             data=[[s["prompt"], s["sae_gpt2"], s["gpt2"]] for s in samples]
                         )
                 })

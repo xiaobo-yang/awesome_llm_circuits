@@ -43,10 +43,10 @@ def compare_gen(model, tokenizer, autoencoder, layers):
     sae_texts = tokenizer.batch_decode(sae_output, skip_special_tokens=False)
     orig_texts = tokenizer.batch_decode(orig_output, skip_special_tokens=False)
     samples = [
-        {"prompt": prompt, "sae_gpt2": sae_text, "gpt2": orig_text}
+        {"prompt": prompt, "sae_model": sae_text, "model": orig_text}
         for prompt, sae_text, orig_text in zip(prompts, sae_texts, orig_texts)
     ]
     for sample in samples:
-        print(f"SAE-GPT2: {sample['sae_gpt2']}")
-        print(f"GPT-2: {sample['gpt2']}")
+        print(f"SAE-model: {sample['model']}")
+        print(f"model: {sample['model']}")
     return samples
