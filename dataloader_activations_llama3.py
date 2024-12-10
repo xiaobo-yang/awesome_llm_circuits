@@ -100,7 +100,7 @@ class DataLoaderActivations(DataLoaderLite):
         hook_handles = []
         for layer in layers:
             if hook_residual:
-                raise NotImplementedError("residual hook not implemented")
+                raise NotImplementedError("residual hook not implemented")  # TODO: 1. hook操作最好单独提取出来放在utils_llama3.py中，否则那里还要修改一次  2. 还需检查是否还有别的脚本用到了hook，也要统一处理
             else:
                 hook_handle = self.model.model.layers[layer].mlp.act_fn.register_forward_hook(hook_fn) # 注意这里是llama3架构的命名
             hook_handles.append(hook_handle)

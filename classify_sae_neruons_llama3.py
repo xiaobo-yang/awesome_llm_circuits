@@ -51,13 +51,13 @@ torch.manual_seed(seed)
 # 训练配置
 # sae data args
 model_path = '/data/my_data/models/Llama-3.2-1B-Instruct'
-sae_checkpoint_path = 'run_20241123_004726_checkpoint_step_49999.pth'
+sae_checkpoint_path = 'run_20241210_155307_checkpoint_step_79999.pth'
 hook_layers = [11,] # layer of mlp to hook
 batch_size = 8 # bs太大可能会报RuntimeError: nonzero is not supported for tensors with more than INT_MAX elements, 因为张量中非零元素的数量超过了 INT_MAX（通常是 2^31 - 1）
 block_size = 1024 # llama3 context windows可以很大
 random_batch = True
 log_dir = 'log'
-num_batches = 1  # 载入的batch个数
+num_batches = 10  # 载入的batch个数
 
 class NeuronActivationRecorder:
     def __init__(self, hidden_dim):
@@ -84,7 +84,7 @@ class NeuronActivationRecorder:
         for i, index in tqdm(enumerate(indices), total=len(indices), desc=f"processing one batch"):
             batch_pos, token_pos, neuron_pos = index
             token = tokenizer.decode(x[batch_pos, token_pos])
-            context = tokenizer.decode(x[batch_pos, token_pos-20: token_pos+20])
+            context = tokenizer.decode(x[batch_pos, max(0, token_pos-20): token_pos+20])
             self.all_infos[neuron_pos.item()].append(
                 (token, context, activation_values[i].item())
             )
@@ -119,9 +119,22 @@ for step in range(num_batches):
     recorder.process_batch(x, sae_model, tokenizer)
 
 # test
-neuron_pos, infos = next(iter(recorder.all_infos.items()))
-for token, context, activation in infos:
-    print(f"neuron_pos: {neuron_pos}, token: {token}, activation: {activation}\ncontext: {context}\n")
+for i, (neuron_pos, infos) in enumerate(recorder.all_infos.items()):
+    infos = sorted(infos, key=lambda x: x[2], reverse=True)
+    _, _, activation = infos[0]
+    if activation > 1.0:
+        for token, context, activation in infos[:10]:
+            print(f"[RANK {ddp_rank}] neuron_pos: {neuron_pos}, token: {token}, activation: {activation}\ncontext: {context}\n")
+        print('-'*30)
+
+tgt = 'teach'
+for i, (neuron_pos, infos) in tqdm(enumerate(recorder.all_infos.items()), total=len(recorder.all_infos), desc="find target token"):
+    infos = sorted(infos, key=lambda x: x[2], reverse=True)
+    token, _, _ = infos[0]
+    if tgt in token:
+        for token, context, activation in infos[:10]:
+            print(f"[RANK {ddp_rank}] neuron_pos: {neuron_pos}, token: {token}, activation: {activation}\ncontext: {context}\n")
+        print('-'*30)
 
 
 

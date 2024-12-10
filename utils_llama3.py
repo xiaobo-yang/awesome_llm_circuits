@@ -46,6 +46,6 @@ def compare_gen(model, tokenizer, autoencoder, layers):
         for prompt, sae_text, orig_text in zip(prompts, sae_texts, orig_texts)
     ]
     for sample in samples:
-        print(f"SAE-model: {sample['model']}")
+        print(f"SAE-model: {sample['sae_model']}")
         print(f"model: {sample['model']}")
     return samples
