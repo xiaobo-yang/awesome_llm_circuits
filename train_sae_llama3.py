@@ -1,11 +1,6 @@
 import torch
 import torch.optim as optim
-from torch.distributed.fsdp import (
-    FullyShardedDataParallel as FSDP, 
-    StateDictType, 
-    FullStateDictConfig,
-    FullOptimStateDictConfig,
-)
+from torch.nn.parallel import DistributedDataParallel as DDP
 from torch.distributed import init_process_group, destroy_process_group
 import torch.distributed as dist
 import random
@@ -97,7 +92,7 @@ data_loader = DataLoaderActivations(model, hook_layers=hook_layers, B=batch_size
 # load sae model
 config = SAEConfig(
     sae_input_dim=8192,
-    sae_hidden_dim=524288,
+    sae_hidden_dim=131072,
     sae_l1_coefficient=ini_lambda,
     sae_l2_norm=sae_l2_norm,
 )
@@ -158,7 +153,7 @@ if master_process:
 
 # ------------------- train -------------------
 if is_distri:
-    autoencoder = FSDP(autoencoder)
+    autoencoder = DDP(autoencoder)
 raw_autoencoder = autoencoder.module if is_distri else autoencoder
 
 random.seed(seed)
@@ -290,30 +285,18 @@ for step in range(start_step, num_steps):
             
 
     # ------------------- save model -------------------
-    if (step + 1) % save_steps == 0 or step == num_steps - 1:
-        cfg = FullStateDictConfig(offload_to_cpu=True, rank0_only=True)
-        optim_cfg = FullOptimStateDictConfig(offload_to_cpu=True, rank0_only=True)
-        
-        # 使用上下文管理器获取模型状态
-        with FSDP.state_dict_type(autoencoder, StateDictType.FULL_STATE_DICT, cfg):
-            model_states = autoencoder.state_dict()
-        
-        # 使用专门的API获取优化器状态
-        with FSDP.state_dict_type(autoencoder, StateDictType.FULL_STATE_DICT, optim_cfg):
-            optim_states = FSDP.optim_state_dict(autoencoder, optimizer)
-            
+    if master_process and ((step + 1) % save_steps == 0 or step == num_steps - 1):
         checkpoint_path = f"log/{run_name}_checkpoint_step_{step}.pth"
         checkpoint_data = {
             'step': step + 1,
             'config': config,
-            'model_state_dict': model_states,
-            'optimizer_state_dict': optim_states,
+            'model_state_dict': raw_autoencoder.state_dict(),
+            'optimizer_state_dict': optimizer.state_dict(),
         }
         if not args.not_wandb:
             checkpoint_data['wandb_id'] = wandb.run.id
-        if master_process: 
-            torch.save(checkpoint_data, checkpoint_path)
-            print(f"save to {checkpoint_path}")
+        torch.save(checkpoint_data, checkpoint_path)
+        print(f"save to {checkpoint_path}")
     
     if master_process:
         end_time = time()

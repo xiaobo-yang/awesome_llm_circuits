@@ -78,6 +78,7 @@ def preprocess_dataset(X):
     X_scaled = X * scaling_factor
     return X_scaled
 
+# TODO: 以下fsdp的分片脚本未完善，先写在这里占位。搞清楚fsdp原理后再修改。。
 if __name__ == '__main__':
     import torch.distributed as dist
     from torch.distributed.fsdp import (
