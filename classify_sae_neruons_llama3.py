@@ -1,23 +1,12 @@
 import torch
-import torch.nn as nn
-import torch.optim as optim
-from torch.nn.parallel import DistributedDataParallel as DDP
 from torch.distributed import init_process_group, destroy_process_group
-import torch.distributed as dist
-import random
-import numpy as np
-import argparse
 import os
-import json
-from time import time
-from datetime import datetime
-import wandb
 from tqdm import tqdm
 from collections import defaultdict
 from transformers import AutoTokenizer, AutoModelForCausalLM
 
 from dataloader_activations_llama3 import DataLoaderLite
-from sae_model import SAEConfig, SparseAutoencoder
+from sae_model import SparseAutoencoder
 from utils_llama3 import sae_adapt
 
 

@@ -87,14 +87,14 @@ def custom_forward(
     hidden_states = residual + hidden_states
 
     # Fully Connected
+    # 应用SAE到residual connection
+    if hasattr(self, 'sae'):
+        encoded = self.sae.encoder(hidden_states)
+        activated = self.sae.activation(encoded)
+        hidden_states = self.sae.decoder(activated)
     residual = hidden_states
     hidden_states = self.post_attention_layernorm(hidden_states)
     hidden_states = self.mlp(hidden_states)
-    # 应用SAE到residual connection
-    if hasattr(self, 'sae'):
-        encoded = self.sae.encoder(residual)
-        activated = self.sae.activation(encoded)
-        residual = self.sae.decoder(activated)
     hidden_states = residual + hidden_states
 
     outputs = (hidden_states,)
