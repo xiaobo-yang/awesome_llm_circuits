@@ -54,6 +54,7 @@ torch.manual_seed(seed)
 # sae data args
 model_path = '/data/my_data/models/Llama-3.2-1B-Instruct'
 hook_layers = args.hook_layers # layer of mlp to hook
+residual_hook = True
 batch_size = 16
 total_batch_size = batch_size * 8  # this is bs of token, bs of mlp activations is total_batch_size * block_size
 grad_accum_steps = max(1, total_batch_size // (batch_size * world_size))
@@ -63,7 +64,7 @@ random_batch = False
 num_steps = 200000
 ini_lr = 5e-5
 clip_norm = 1.0
-ini_lambda = 25.0 # lambda for sparsity loss
+ini_lambda = 5.0 # lambda for sparsity loss
 sae_l2_norm = 0.1  # initialized norm of encoder
 save_steps = 20000
 eval_interval = 500
@@ -91,7 +92,7 @@ model.eval()
 data_loader = DataLoaderActivations(model, hook_layers=hook_layers, B=batch_size, T=block_size, process_rank=rank, num_processes=world_size, split="train", random_batch=random_batch)
 # load sae model
 config = SAEConfig(
-    sae_input_dim=2048,
+    sae_input_dim=2048 if residual_hook else 8192,
     sae_hidden_dim=131072,
     sae_l1_coefficient=ini_lambda,
     sae_l2_norm=sae_l2_norm,
@@ -104,6 +105,7 @@ if master_process:
     wandb_config = {
         "model": model_path.split("/")[-1],
         "hook_layers": hook_layers,
+        "residual_hook": residual_hook,
         "batch_size": batch_size,
         "total_batch_size": total_batch_size,
         "block_size": block_size,
@@ -144,6 +146,8 @@ else:
             run_name = wandb.run.name
         else:
             run_name = f"run_{current_time}"
+if residual_hook: # DEBUG
+    run_name = f"residual_{run_name}"
 # log
 if master_process:
     if not os.path.exists('log'):
