@@ -127,7 +127,7 @@ for i, (neuron_pos, infos) in enumerate(recorder.all_infos.items()):
             print(f"[RANK {ddp_rank}] neuron_pos: {neuron_pos}, token: {token}, activation: {activation}\ncontext: {context}\n")
         print('-'*30)
 
-tgt = 'control'
+tgt = 'United'
 for i, (neuron_pos, infos) in tqdm(enumerate(recorder.all_infos.items()), total=len(recorder.all_infos), desc="find target token"):
     infos = sorted(infos, key=lambda x: x[2], reverse=True)
     token, _, _ = infos[0]

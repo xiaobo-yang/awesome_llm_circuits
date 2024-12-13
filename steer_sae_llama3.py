@@ -36,8 +36,7 @@ sae_model = sae_adapt(model, autoencoder, hook_layers)
 
 
 # activate neuron ----------------------------
-act_neurons = [24978, 28899, 54133] # america
-# act_neurons = [22453, ] # died
+act_neurons = [24978, 28899, 54133, 51204, 59532] # america
 gen_prompt = 'Vladimir Putin is the president of'
 inputs = tokenizer(gen_prompt, return_tensors="pt")
 inputs = {k: v.to(device) for k, v in inputs.items()}
@@ -46,7 +45,7 @@ topk = 5 # 输出前topk个概率最大next token及其概率
 output_file_path = 'modify_activations_output.txt'  # 指定输出文件路径
 with open(output_file_path, 'w') as f:
     for val in range(1,300):
-        val /= 5
+        val /= 2.5
         # activated generation
         def act_neuron(module, input, output):
             for neuron in act_neurons:
