@@ -64,7 +64,7 @@ random_batch = False
 num_steps = 200000
 ini_lr = 5e-5
 clip_norm = 1.0
-ini_lambda = 5.0 # lambda for sparsity loss
+ini_lambda = 15.0 # lambda for sparsity loss
 sae_l2_norm = 0.1  # initialized norm of encoder
 save_steps = 20000
 eval_interval = 500
@@ -146,8 +146,6 @@ else:
             run_name = wandb.run.name
         else:
             run_name = f"run_{current_time}"
-if residual_hook: # DEBUG
-    run_name = f"residual_{run_name}"
 # log
 if master_process:
     if not os.path.exists('log'):
