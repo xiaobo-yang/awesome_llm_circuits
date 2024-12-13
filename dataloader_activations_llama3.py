@@ -77,7 +77,7 @@ class DataLoaderLite:
 
 
 class DataLoaderActivations(DataLoaderLite):
-    def __init__(self, model, hook_layers, B, T, process_rank, num_processes, split, random_batch=False, hook_residual=False):
+    def __init__(self, model, hook_layers, B, T, process_rank, num_processes, split, random_batch=False, hook_residual=True):
         super().__init__(B, T, process_rank, num_processes, split, random_batch)
         self.model = model
         self.mlp_activations = []
@@ -97,10 +97,15 @@ class DataLoaderActivations(DataLoaderLite):
         def hook_fn(module, input, output):
             output = output.detach().cpu().float().numpy()
             self.mlp_activations.append(output.reshape(-1, output.shape[-1]))
+    
+        def hook_residual_fn(module, input, output):
+            residual = input[0].detach().cpu().float().numpy()
+            self.mlp_activations.append(residual.reshape(-1, residual.shape[-1]))
+
         hook_handles = []
         for layer in layers:
             if hook_residual:
-                raise NotImplementedError("residual hook not implemented")  # TODO: 1. hook操作最好单独提取出来放在utils_llama3.py中，否则那里还要修改一次  2. 还需检查是否还有别的脚本用到了hook，也要统一处理
+                hook_handle = self.model.model.layers[layer].post_attention_layernorm.register_forward_hook(hook_residual_fn)
             else:
                 hook_handle = self.model.model.layers[layer].mlp.act_fn.register_forward_hook(hook_fn) # 注意这里是llama3架构的命名
             hook_handles.append(hook_handle)
@@ -109,3 +114,5 @@ class DataLoaderActivations(DataLoaderLite):
     def remove_hook_mlp(self):
         for hook_handle in self.hook_handles:
             hook_handle.remove()
+
+

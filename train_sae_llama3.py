@@ -91,7 +91,7 @@ model.eval()
 data_loader = DataLoaderActivations(model, hook_layers=hook_layers, B=batch_size, T=block_size, process_rank=rank, num_processes=world_size, split="train", random_batch=random_batch)
 # load sae model
 config = SAEConfig(
-    sae_input_dim=8192,
+    sae_input_dim=2048,
     sae_hidden_dim=131072,
     sae_l1_coefficient=ini_lambda,
     sae_l2_norm=sae_l2_norm,

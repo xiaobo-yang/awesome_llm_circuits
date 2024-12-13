@@ -1,7 +1,7 @@
 import torch
 import copy
 
-def sae_adapt(model, autoencoder, layers):
+def sae_adapt(model, autoencoder, layers, hook_residual=True):
     """
         add sae adapter to model
         Input:
@@ -9,15 +9,19 @@ def sae_adapt(model, autoencoder, layers):
     """
     sae_model = copy.deepcopy(model)
     
-    def sae_hook(module, input, output):
-        # 在gate_proj和up_proj的乘积之后应用autoencoder
-        encoded = autoencoder.encoder(output)
-        activated = autoencoder.activation(encoded)
-        decoded = autoencoder.decoder(activated)
-        return decoded
-    
     for layer in layers:
-        sae_model.model.layers[layer].mlp.act_fn.register_forward_hook(sae_hook) # 注意：只适合llama3的module name（act_fn）
+        if hook_residual:
+            layer = sae_model.model.layers[layer]
+            layer.sae = autoencoder  # 添加sae属性
+            layer.forward = custom_forward.__get__(layer)  # 绑定新的forward方法
+        else:
+            def sae_hook(module, input, output):
+                # 在gate_proj和up_proj的乘积之后应用autoencoder
+                encoded = autoencoder.encoder(output)
+                activated = autoencoder.activation(encoded)
+                decoded = autoencoder.decoder(activated)
+                return decoded
+            sae_model.model.layers[layer].mlp.act_fn.register_forward_hook(sae_hook) # 注意：只适合llama3的module name（act_fn）
     
     return sae_model
 
@@ -49,3 +53,56 @@ def compare_gen(model, tokenizer, autoencoder, layers):
         print(f"SAE-model: {sample['sae_model']}")
         print(f"model: {sample['model']}")
     return samples
+
+
+# customed llama3 block layer forward
+def custom_forward(
+    self,
+    hidden_states: torch.Tensor,
+    attention_mask: None,
+    position_ids: None,
+    past_key_value: None,
+    output_attentions: False,
+    use_cache: False,
+    cache_position: None,
+    position_embeddings: None,
+    **kwargs,
+):
+    residual = hidden_states
+
+    hidden_states = self.input_layernorm(hidden_states)
+
+    # Self Attention
+    hidden_states, self_attn_weights, present_key_value = self.self_attn(
+        hidden_states=hidden_states,
+        attention_mask=attention_mask,
+        position_ids=position_ids,
+        past_key_value=past_key_value,
+        output_attentions=output_attentions,
+        use_cache=use_cache,
+        cache_position=cache_position,
+        position_embeddings=position_embeddings,
+        **kwargs,
+    )
+    hidden_states = residual + hidden_states
+
+    # Fully Connected
+    residual = hidden_states
+    hidden_states = self.post_attention_layernorm(hidden_states)
+    hidden_states = self.mlp(hidden_states)
+    # 应用SAE到residual connection
+    if hasattr(self, 'sae'):
+        encoded = self.sae.encoder(residual)
+        activated = self.sae.activation(encoded)
+        residual = self.sae.decoder(activated)
+    hidden_states = residual + hidden_states
+
+    outputs = (hidden_states,)
+
+    if output_attentions:
+        outputs += (self_attn_weights,)
+
+    if use_cache:
+        outputs += (present_key_value,)
+
+    return outputs
