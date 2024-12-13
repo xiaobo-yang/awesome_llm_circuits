@@ -51,13 +51,13 @@ torch.manual_seed(seed)
 # 训练配置
 # sae data args
 model_path = '/data/my_data/models/Llama-3.2-1B-Instruct'
-sae_checkpoint_path = 'run_20241210_155307_checkpoint_step_119999.pth'
+sae_checkpoint_path = 'run_20241210_163535_checkpoint_step_79999.pth'
 hook_layers = [11,] # layer of mlp to hook
 batch_size = 8 # bs太大可能会报RuntimeError: nonzero is not supported for tensors with more than INT_MAX elements, 因为张量中非零元素的数量超过了 INT_MAX（通常是 2^31 - 1）
-block_size = 128 # 可能需要和训练时使用的windows size一致
+block_size = 1024 # 可能需要和训练时使用的windows size一致
 random_batch = True
 log_dir = 'log'
-num_batches = 100  # 载入的batch个数
+num_batches = 10  # 载入的batch个数
 
 class NeuronActivationRecorder:
     def __init__(self, hidden_dim):
